@@ -3,11 +3,11 @@ from typing import Tuple
 import numpy as np
 from numpy.typing import NDArray
 
-from utils.line_segment import LineSegment
+from .line_segment import LineSegment
 
 
 class Corner:
-    def __init__(self, point: NDArray[int], descriptor: Tuple[bool, bool, bool, bool], gate_id: int = -1):
+    def __init__(self, point: NDArray[np.int_], descriptor: Tuple[bool, bool, bool, bool], gate_id: int = -1):
         """
         门框角点
         :param point: 坐标
@@ -33,7 +33,7 @@ class Corner:
 class CornerFromMask(Corner):
     def __init__(
             self,
-            point: NDArray[int],
+            point: NDArray[np.int_],
             line1: LineSegment,
             line2: LineSegment,
             mask: NDArray,
