@@ -92,9 +92,7 @@ class YOLOGateSeg:
         if self.last_seg_results.masks is None:
             return np.zeros(self._last_raw_img.shape, dtype=np.uint8)
         else:
-            return (
-                (self._to_ndarray(self.last_seg_results.masks.data) > 0.5) * 255
-            ).astype(np.uint8)
+            return ((self._to_ndarray(self.last_seg_results.masks.data) > 0.5) * 255).astype(np.uint8)
 
     def create_last_seg_results_img(self) -> NDArray:
         """分割结果图像（cv2，CPU）"""

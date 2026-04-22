@@ -28,6 +28,9 @@ class Corner:
 
     def descriptor_matched(self, other: 'Corner') -> bool:
         return self._descriptor == other._descriptor
+    
+    def is_from_same_gate(self, other: 'Corner') -> bool:
+        return self._gate_id >= 0 and self._gate_id == other._gate_id
 
 
 class CornerFromMask(Corner):
@@ -40,7 +43,7 @@ class CornerFromMask(Corner):
             offset: int = 5
     ):
         """
-        门框角点，包含坐标、生成它的两条线段和描述子
+        从分割掩码提取的门框角点，包含坐标、生成它的两条线段和描述子
         :param point: 候选角点坐标
         :param line1: 生成角点的线段1
         :param line2: 生成角点的线段2

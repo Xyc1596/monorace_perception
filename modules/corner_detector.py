@@ -20,7 +20,7 @@ class CornerDetector:
         """线段长度缩放因子"""
         self._MATCH_DIST_THRESH: int = 100
         """如果先验角点与候选角点像素距离大于此值，则拒绝匹配"""
-        self._RANSAC_THRESH: float = 5.
+        self._RANSAC_THRESH: float = 5.0
         """RANSAC 内点阈值（像素）"""
         self._MAX_TRANSLATION: int = 150
         """RANSAC 任何方向上的平移超过此值则拒绝解"""
@@ -29,7 +29,7 @@ class CornerDetector:
             scale=0.8,
             sigma_scale=0.8,
             quant=25.0,
-            ang_th=30.0
+            ang_th=30.0,
         )
 
     def _derotate_mask(self, mask: NDArray[np.uint8], body_quat_est: NDArray) -> Tuple[NDArray[np.uint8], NDArray]:
@@ -53,8 +53,8 @@ class CornerDetector:
         # 旋转掩码图像
         h, w = mask.shape[:2]
         center = (w // 2, h // 2)
-        rot_mat = cv2.getRotationMatrix2D(center, rot_deg, 1.)
-        return cv2.warpAffine(mask,rot_mat,(w, h),flags=cv2.INTER_NEAREST).astype(np.uint8), rot_mat
+        rot_mat = cv2.getRotationMatrix2D(center, rot_deg, 1.0)
+        return cv2.warpAffine(mask, rot_mat, (w, h), flags=cv2.INTER_NEAREST).astype(np.uint8), rot_mat
 
     def _detect_lines(self, mask: NDArray[np.uint8]) -> List[LineSegment]:
         """
@@ -75,8 +75,8 @@ class CornerDetector:
 
     @staticmethod
     def _compute_corner_candidates(
-            extended_segments: List[LineSegment],
-            mask: NDArray[np.uint8]
+        extended_segments: List[LineSegment],
+        mask: NDArray[np.uint8],
     ) -> List[CornerFromMask]:
         """
         计算每对扩展线段之间的交点，生成角点候选。
@@ -103,14 +103,14 @@ class CornerDetector:
                         extended_segments[i],
                         extended_segments[j],
                         mask,
-                        5
+                        5,
                     )
         return list(candidates_dict.values())
 
     def _match(
-            self,
-            prior_corners: List[Corner],
-            candidate_corners: List[CornerFromMask]
+        self,
+        prior_corners: List[Corner],
+        candidate_corners: List[CornerFromMask],
     ) -> List[Tuple[Corner, CornerFromMask]]:
         """
         根据描述符完全匹配 + 距离约束建立角点匹配对
@@ -123,7 +123,7 @@ class CornerDetector:
         matches: List[Tuple[Corner, CornerFromMask]] = []  # (prior, candidate)
         for prior_corner in prior_corners:
             best_match: Optional[CornerFromMask] = None
-            best_dist: float = float('inf')
+            best_dist: float = float("inf")
             for candidate_corner in candidate_corners:
                 if not candidate_corner.descriptor_matched(prior_corner):
                     continue
@@ -136,9 +136,9 @@ class CornerDetector:
         return matches
 
     def _ransac_transform(
-            self,
-            prior_corners: List[Corner],
-            matches: List[Tuple[Corner, CornerFromMask]]
+        self,
+        prior_corners: List[Corner],
+        matches: List[Tuple[Corner, CornerFromMask]],
     ) -> Optional[NDArray]:
         """
         使用RANSAC估计仿射变换（4个自由度）,对四个先验角点坐标进行变换
@@ -158,7 +158,7 @@ class CornerDetector:
             matched_prior_points,
             matched_candidate_points,
             method=cv2.RANSAC,
-            ransacReprojThreshold=self._RANSAC_THRESH
+            ransacReprojThreshold=self._RANSAC_THRESH,
         )
         if transform is None or inliers is None or np.sum(inliers) < 2:
             return None
@@ -177,7 +177,7 @@ class CornerDetector:
         transformed = pts_homo @ transform.T  # (4,2)
         return transformed
 
-    def detect(self, mask: NDArray[np.uint8], body_quat_est: NDArray, prior_corners: List[Corner]):
+    def detect(self, mask: NDArray[np.uint8], body_quat_est: NDArray, prior_corners: List[Corner]) -> Optional[NDArray]:
         """
         QuAdGate
         Args:
@@ -200,7 +200,7 @@ class CornerDetector:
         # 4. 根据描述子 & 距离约束匹配先验角点和候选角点
         matches = self._match(prior_corners, candidate_corners)
         # 5. RANSAC 估计4 自由度仿射变换（平移、旋转、均匀缩放），剔除异常匹配、得到精确角点坐标
-        transformed_prior_corners = self._ransac_transform(prior_corners, matches) # (4,3)
+        transformed_prior_corners = self._ransac_transform(prior_corners, matches)  # (4,3)
         # 6. 将角点逆旋转回原图像
         if transformed_prior_corners is None:
             return None
