@@ -65,8 +65,8 @@ class CornerFromMask(Corner):
         h, w = mask.shape[:2]
         descriptor = []
         for off in [offset * d1, -offset * d1, offset * d2, -offset * d2]:
-            px: int = point[0] + off[0]
-            py: int = point[1] + off[1]
+            px: int = int(point[0] + off[0])
+            py: int = int(point[1] + off[1])
             if 0 <= px < w and 0 <= py < h:
                 descriptor.append(mask[py, px] > 0)
             else:

@@ -32,6 +32,9 @@ class CornerDetector:
             ang_th=30.0,
         )
 
+        self._debug_img_bgr: Optional[cv2.typing.MatLike] = None
+        self._debug_img_scale: float = 1.0
+
     def _derotate_mask(self, mask: NDArray[np.uint8], body_quat_est: NDArray) -> Tuple[NDArray[np.uint8], NDArray]:
         """
         掩码去旋转（使图像中的垂直轴与世界向上方向对齐） TODO: 去旋转是否考虑偏航和俯仰？旋转中心？
@@ -177,34 +180,73 @@ class CornerDetector:
         transformed = pts_homo @ transform.T  # (4,2)
         return transformed
 
-    def detect(self, mask: NDArray[np.uint8], body_quat_est: NDArray, prior_corners: List[Corner]) -> Optional[NDArray]:
+    def _display_debug_img(self):
+        assert self._debug_img_bgr is not None
+        resized = cv2.resize(
+            self._debug_img_bgr,
+            None,
+            fx=self._debug_img_scale,
+            fy=self._debug_img_scale,
+            interpolation=cv2.INTER_NEAREST,
+        )
+        cv2.imshow("debug", resized)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    def detect(
+        self,
+        mask: NDArray[np.uint8],
+        body_quat_est: NDArray,
+        prior_corners: List[Corner],
+        debug_mode: bool = False,
+    ) -> Optional[NDArray]:
         """
         QuAdGate
         Args:
             mask (NDArray[np.uint8]): 单个门框的二值化掩码图像 [H, W]（0/255）
             body_quat_est (NDArray):  状态估计的无人机姿态四元数（I2B）
             prior_corners (List[Corner]): 上一帧或模板中的四个门框角点
+            debug_mode (bool, optional): 是否开启调试模式，用于可视化
         Returns:
             NDArray: 当前帧中四个门框角点坐标 [4,2]，若失败则返回None
         """
         # 1. 掩码去旋转
         derotated_mask, derotate_mat = self._derotate_mask(mask, body_quat_est)
+
         # 2. LSD 线段检测
         line_segments = self._detect_lines(derotated_mask)
+        if debug_mode:
+            self._debug_img_bgr = cv2.cvtColor(derotated_mask, cv2.COLOR_GRAY2BGR)
+            self._debug_img_scale = max(1, 512 // self._debug_img_bgr.shape[0])  # 小图先放大再显示
+            for line in line_segments:
+                cv2.line(self._debug_img_bgr, tuple(map(int, line.start)), tuple(map(int, line.end)), (0, 255, 0), 1)
+            for prior_corner in prior_corners:
+                cv2.circle(self._debug_img_bgr, tuple(map(int, prior_corner.point)), 1, (0, 0, 255), -1)
         if len(line_segments) < 2:
+            if debug_mode:
+                self._display_debug_img()
             return None
-        # 3：计算角点候选
+
+        # 3：计算角点候选 TODO: debug mode draw
         candidate_corners = self._compute_corner_candidates(line_segments, derotated_mask)
         if not candidate_corners:
+            if debug_mode:
+                self._display_debug_img()
             return None
+
         # 4. 根据描述子 & 距离约束匹配先验角点和候选角点
         matches = self._match(prior_corners, candidate_corners)
+
         # 5. RANSAC 估计4 自由度仿射变换（平移、旋转、均匀缩放），剔除异常匹配、得到精确角点坐标
         transformed_prior_corners = self._ransac_transform(prior_corners, matches)  # (4,3)
+
         # 6. 将角点逆旋转回原图像
         if transformed_prior_corners is None:
-            return None
+            output = None
         else:
             # 添加齐次坐标
             ones = np.ones((transformed_prior_corners.shape[0], 1), dtype=np.float32)
-            return np.hstack([transformed_prior_corners, ones]) @ derotate_mat.T
+            output = np.hstack([transformed_prior_corners, ones]) @ derotate_mat.T
+        if debug_mode:
+            self._display_debug_img()
+        return output

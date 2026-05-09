@@ -2,3 +2,4 @@
 *.code-workspace
 /.vscode
 /assets/ref
+__pycache__/

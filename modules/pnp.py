@@ -3,7 +3,6 @@ PnP位姿估计
 """
 
 from typing import Optional, Tuple, Sequence, List
-import typing
 
 import numpy as np
 from numpy.typing import NDArray
@@ -62,21 +61,25 @@ class PnP:
         except TypeError:
             # 尝试使用返回3个值的版本（旧版本的OpenCV）
             rvec: cv2.typing.MatLike
-            rvec, tvec, inliers = cv2.solvePnPRansac( # type: ignore
+            rvec, tvec, inliers = cv2.solvePnPRansac(  # type: ignore
                 object_points.astype(np.float32),
                 corners_2d,
                 self._INTRINSIC_MAT,
                 self._DIST_COEFFS,
                 flags=cv2.SOLVEPNP_EPNP,  # 使用EPNP算法
-                reprojectionError=self._RANSAC_THRESH
-            ) # type: ignore
+                reprojectionError=self._RANSAC_THRESH,
+            )  # type: ignore
 
             if inliers is None or len(inliers) < 4:
                 return None
 
         return rvec, tvec
 
-    def solve_multi_gate(self, gate_corners: List[Sequence[Corner]], gate_object_points: List[NDArray]) -> Optional[Tuple[NDArray, NDArray]]:
+    def solve_multi_gate(
+        self,
+        gate_corners: List[Sequence[Corner]],
+        gate_object_points: List[NDArray],
+    ) -> Optional[Tuple[NDArray, NDArray]]:
         """
         从多个门的角点求解PnP问题
         Args:
@@ -88,17 +91,17 @@ class PnP:
         # 合并所有门的角点和对应的3D点
         all_corners = []
         all_object_points = []
-        
+
         for corners, object_points in zip(gate_corners, gate_object_points):
             all_corners.extend(corners)
             all_object_points.append(object_points)
-        
+
         if len(all_corners) < 4:
             return None
-        
+
         # 拼接所有3D点
         merged_object_points = np.vstack(all_object_points)
-        
+
         return self.solve(all_corners, merged_object_points)
 
     def get_pose(self, corners: Sequence[Corner], object_points: NDArray) -> Optional[Tuple[NDArray, NDArray]]:
@@ -146,11 +149,15 @@ class PnP:
         Returns:
             bool: 是否使用完整的PnP解决方案
         """
-        return (len(corners) >= self._MIN_CORNERS and 
-                self._MIN_DISTANCE <= gate_distance <= self._MAX_DISTANCE)
+        return len(corners) >= self._MIN_CORNERS and self._MIN_DISTANCE <= gate_distance <= self._MAX_DISTANCE
 
     # TODO: 移走EKF相关模块
-    def get_fallback_pose(self, corners: Sequence[Corner], object_points: NDArray, ekf_attitude: NDArray) -> Optional[Tuple[NDArray, NDArray]]:
+    def get_fallback_pose(
+        self,
+        corners: Sequence[Corner],
+        object_points: NDArray,
+        ekf_attitude: NDArray,
+    ) -> Optional[Tuple[NDArray, NDArray]]:
         """
         使用EKF姿态和PnP相对平移的备用姿态估计方法
         Args:
@@ -164,15 +171,16 @@ class PnP:
         result = self.solve(corners, object_points)
         if result is None:
             return None
-        
+
         _, tvec = result
-        
+
         # 使用EKF的姿态
         rmat = Rotation.from_quat(ekf_attitude).as_matrix()
-        
+
         return rmat, tvec
 
-    def is_attitude_update_reliable(self, num_gates: int, is_stationary: bool) -> bool:
+    @staticmethod
+    def is_attitude_update_reliable(num_gates: int, is_stationary: bool) -> bool:
         """
         判断PnP姿态更新是否可靠
         Args:
@@ -184,7 +192,8 @@ class PnP:
         # 当检测到至少两个门时，或者无人机静止时，姿态更新是可靠的
         return num_gates >= 2 or is_stationary
 
-    def reject_outlier(self, pnp_position: NDArray, ekf_position: NDArray, ekf_covariance: NDArray, num_corners: int) -> bool:
+    @staticmethod
+    def reject_outlier(pnp_position: NDArray, ekf_position: NDArray, ekf_covariance: NDArray, num_corners: int) -> bool:
         """
         基于Kalman滤波器估计拒绝离群值
         Args:
@@ -198,9 +207,9 @@ class PnP:
         # 计算位置差的平方范数
         position_diff = pnp_position - ekf_position
         position_diff_norm = np.linalg.norm(position_diff) ** 2
-        
+
         # 计算阈值
-        threshold = 16 * (num_corners ** 2) * np.trace(ekf_covariance)
-        
+        threshold = 16 * (num_corners**2) * np.trace(ekf_covariance)
+
         # 判断是否接受测量
         return position_diff_norm < threshold
