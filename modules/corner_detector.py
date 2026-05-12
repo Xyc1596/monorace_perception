@@ -4,11 +4,12 @@
 
 from typing import Tuple, List, Dict, Optional
 
+from loguru import logger
 import numpy as np
-from utils.imports import cv2
 from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
 
+from utils.imports import cv2
 from utils import Corner, CornerFromMask, LineSegment
 
 
@@ -34,6 +35,8 @@ class CornerDetector:
 
         self._debug_img_bgr: Optional[cv2.typing.MatLike] = None
         self._debug_img_scale: float = 1.0
+
+        logger.info("CornerDetector initialized")
 
     def _derotate_mask(self, mask: NDArray[np.uint8], body_quat_est: NDArray) -> Tuple[NDArray[np.uint8], NDArray]:
         """
@@ -135,6 +138,7 @@ class CornerDetector:
                     best_dist = dist
                     best_match = candidate_corner
             if best_match is not None:
+                best_match.match_prior(prior_corner)
                 matches.append((prior_corner, best_match))
         return matches
 
@@ -198,6 +202,7 @@ class CornerDetector:
         mask: NDArray[np.uint8],
         body_quat_est: NDArray,
         prior_corners: List[Corner],
+        derotate_prior_corners: bool = False,
         debug_mode: bool = False,
     ) -> Optional[NDArray]:
         """
@@ -206,12 +211,20 @@ class CornerDetector:
             mask (NDArray[np.uint8]): 单个门框的二值化掩码图像 [H, W]（0/255）
             body_quat_est (NDArray):  状态估计的无人机姿态四元数（I2B）
             prior_corners (List[Corner]): 上一帧或模板中的四个门框角点
+            derotate_prior_corners (bool, optional): 是否对先验角点进行去旋转变换
             debug_mode (bool, optional): 是否开启调试模式，用于可视化
         Returns:
             NDArray: 当前帧中四个门框角点坐标 [4,2]，若失败则返回None
         """
         # 1. 掩码去旋转
         derotated_mask, derotate_mat = self._derotate_mask(mask, body_quat_est)
+        if derotate_prior_corners:
+            prior_corners_arr = np.array([c.point for c in prior_corners]).reshape(-1, 1, 2)
+            derotated_prior_corners = cv2.transform(prior_corners_arr, derotate_mat).reshape(-1, 2)
+            prior_corners = [
+                Corner(derotated_prior_corners[i], prior_corners[i].descriptor)
+                for i in range(derotated_prior_corners.shape[0])
+            ]
 
         # 2. LSD 线段检测
         line_segments = self._detect_lines(derotated_mask)
@@ -219,29 +232,41 @@ class CornerDetector:
             self._debug_img_bgr = cv2.cvtColor(derotated_mask, cv2.COLOR_GRAY2BGR)
             self._debug_img_scale = max(1, 512 // self._debug_img_bgr.shape[0])  # 小图先放大再显示
             for line in line_segments:
-                cv2.line(self._debug_img_bgr, tuple(map(int, line.start)), tuple(map(int, line.end)), (0, 255, 0), 1)
+                line.plot(self._debug_img_bgr)  # 灰色线
             for prior_corner in prior_corners:
-                cv2.circle(self._debug_img_bgr, tuple(map(int, prior_corner.point)), 1, (0, 0, 255), -1)
+                prior_corner.plot(self._debug_img_bgr)  # 红色：先验角点
         if len(line_segments) < 2:
+            logger.warning("No line segments detected")
             if debug_mode:
                 self._display_debug_img()
             return None
 
-        # 3：计算角点候选 TODO: debug mode draw
+        # 3：计算角点候选
         candidate_corners = self._compute_corner_candidates(line_segments, derotated_mask)
+        if debug_mode:
+            for corner in candidate_corners:
+                corner.plot(self._debug_img_bgr)  # type: ignore
+
         if not candidate_corners:
+            logger.warning("No candidate corners detected")
             if debug_mode:
                 self._display_debug_img()
             return None
 
         # 4. 根据描述子 & 距离约束匹配先验角点和候选角点
         matches = self._match(prior_corners, candidate_corners)
+        if not matches:
+            logger.warning("No matches found")
+            if debug_mode:
+                self._display_debug_img()
+            return None
 
         # 5. RANSAC 估计4 自由度仿射变换（平移、旋转、均匀缩放），剔除异常匹配、得到精确角点坐标
         transformed_prior_corners = self._ransac_transform(prior_corners, matches)  # (4,3)
 
         # 6. 将角点逆旋转回原图像
         if transformed_prior_corners is None:
+            logger.warning("RANSAC failed")
             output = None
         else:
             # 添加齐次坐标

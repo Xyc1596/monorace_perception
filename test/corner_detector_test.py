@@ -1,10 +1,12 @@
 import sys, os
+
 sys.path.append(".")
 print(os.path.abspath(sys.path[-1]))
 import numpy as np
 from numpy.typing import NDArray
 from utils.corner import Corner
 from utils.imports import cv2
+from utils.corner_descriptor import CornerDescriptor
 from scipy.spatial.transform import Rotation
 from modules.corner_detector import CornerDetector
 
@@ -39,12 +41,12 @@ img_binary: NDArray
 body_quat = Rotation.from_euler("zyx", [-30, 20, 0], degrees=True).as_quat()
 
 prior_corners = [
-    Corner(np.array([33,25]), (False, False, True, False)),
-    Corner(np.array([89, 33]), (False, False, False, True)),
-    Corner(np.array([86, 93]), (True, False, False, False)),
-    Corner(np.array([35, 80]), (False, True, False, False)),
+    Corner(np.array([33, 25]), CornerDescriptor.LT),
+    Corner(np.array([89, 33]), CornerDescriptor.RT),
+    Corner(np.array([86, 93]), CornerDescriptor.RB),
+    Corner(np.array([35, 80]), CornerDescriptor.LB),
 ]
 
 detector = CornerDetector(intrinsic_mat, extrinsic_mat)
-detected_corners = detector.detect(img_binary, body_quat, prior_corners)
+detected_corners = detector.detect(img_binary, body_quat, prior_corners, derotate_prior_corners=True, debug_mode=True)
 print(detected_corners)
