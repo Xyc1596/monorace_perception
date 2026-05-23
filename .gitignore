@@ -1,4 +1,5 @@
 *.pdf
 *.code-workspace
 /assets/ref
+/assets/doc
 __pycache__/

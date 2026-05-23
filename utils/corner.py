@@ -8,13 +8,14 @@ from .line_segment import LineSegment
 from utils.imports import cv2
 
 
-class Corner:
+class Corner2D:
     def __init__(self, point: NDArray[np.int_], descriptor: CornerDescriptor, gate_id: int = -1):
-        """
-        门框角点
-        :param point: 坐标
-        :param descriptor: 描述子：左上，右上，右下，左下属于掩码（True）还是背景（False）
-        :param gate_id: 所属门框编号，-1 表示未知
+        """2D图像内门框角点
+
+        Args:
+            point (NDArray[np.int_]): 坐标
+            descriptor (CornerDescriptor): 描述子，表示角点位于门框的哪个角
+            gate_id (int): 所属门框编号，-1 表示未知
         """
         self._point = point
         self._descriptor = descriptor
@@ -27,16 +28,16 @@ class Corner:
 
     @property
     def descriptor(self):
-        """角点描述子"""
+        """角点描述子，表示角点位于门框的哪个角"""
         return self._descriptor
 
-    def distance_to(self, other: "Corner") -> float:
+    def distance_to(self, other: "Corner2D") -> float:
         return float(np.linalg.norm(self._point - other._point))
 
-    def descriptor_matched(self, other: "Corner") -> bool:
+    def descriptor_matched(self, other: "Corner2D") -> bool:
         return self._descriptor == other._descriptor
 
-    def is_from_same_gate(self, other: "Corner") -> bool:
+    def is_from_same_gate(self, other: "Corner2D") -> bool:
         return self._gate_id >= 0 and self._gate_id == other._gate_id
 
     def __str__(self) -> str:
@@ -49,7 +50,7 @@ class Corner:
         cv2.circle(img, self._point.tolist(), 1, (0, 0, 255), -1)
 
 
-class CornerFromMask(Corner):
+class Corner2DFromMask(Corner2D):
     _OFFSET_SIGN = (
         (-1, -1),  # LT
         (1, -1),  # RT
@@ -60,11 +61,13 @@ class CornerFromMask(Corner):
     def __init__(self, point: NDArray[np.int_], line1: LineSegment, line2: LineSegment, mask: NDArray, offset: int = 5):
         """
         从分割掩码提取的门框角点，包含坐标、生成它的两条线段和描述子
-        :param point: 候选角点坐标
-        :param line1: 生成角点的线段1
-        :param line2: 生成角点的线段2
-        :param mask: 二值化掩码图像（0/255）
-        :param offset: 描述子偏移像素数
+
+        Args:
+            point (NDArray[np.int_]): 候选角点坐标
+            line1 (LineSegment): 生成角点的线段1
+            line2 (LineSegment): 生成角点的线段2
+            mask (NDArray): 二值化掩码图像（0/255）
+            offset (int): 描述子采样偏移像素数
         """
         self._line1: LineSegment = line1
         self._line2: LineSegment = line2
@@ -91,9 +94,9 @@ class CornerFromMask(Corner):
             else:
                 descriptor.append(False)
 
-        super().__init__(point, CornerDescriptor.of_tuple(tuple(descriptor)))  # type: ignore
+        super().__init__(point, CornerDescriptor.of_bool_sequence(tuple(descriptor)))  # type: ignore
 
-    def match_prior(self, prior: Corner):
+    def match_prior(self, prior: Corner2D):
         """与先验交点关联，设置所属门框编号"""
         if self._gate_id >= 0:
             raise ValueError(f"角点已与门框 {self._gate_id} 匹配")
@@ -102,7 +105,7 @@ class CornerFromMask(Corner):
     def plot(self, img: cv2.typing.MatLike):
         """绘制测试图像
         - 绿点：角点坐标
-        - 蓝点：描述子坐标
+        - 蓝点：描述子采样点坐标
         """
         cv2.circle(img, self._point.tolist(), 1, (0, 255, 0), -1)
         for dp in self._descriptor_points:

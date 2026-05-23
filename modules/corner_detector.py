@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
 
 from utils.imports import cv2
-from utils import Corner, CornerFromMask, LineSegment
+from utils import Corner2D, Corner2DFromMask, LineSegment
 
 
 class CornerDetector:
@@ -38,16 +38,16 @@ class CornerDetector:
 
         logger.info("CornerDetector initialized")
 
-    def _derotate_mask(self, mask: NDArray[np.uint8], body_quat_est: NDArray) -> Tuple[NDArray[np.uint8], NDArray]:
+    def _derotate_mask(self, mask: NDArray[np.uint8], body_quat_pred: NDArray) -> Tuple[NDArray[np.uint8], NDArray]:
         """
         掩码去旋转（使图像中的垂直轴与世界向上方向对齐） TODO: 去旋转是否考虑偏航和俯仰？旋转中心？
         Args:
             mask (NDArray[np.uint8]): 二值化掩码图像 [H,W]（0/255）
-            body_quat_est (NDArray): 状态估计的无人机姿态四元数（I2B）
+            body_quat_pred (NDArray): 状态估计的无人机姿态四元数（I2B）
         Returns:
             Tuple[NDArray[np.uint8], NDArray]: 去旋转的掩码图像 [H,W]（0/255），去旋转矩阵 [2,3]
         """
-        rot_i2c = self._ROT_B2C * Rotation.from_quat(body_quat_est)
+        rot_i2c = self._ROT_B2C * Rotation.from_quat(body_quat_pred)
         # 惯性系向上向量投影到图像平面
         vec_up = self._INTRINSIC_MAT @ rot_i2c.apply([0, 0, 1])
         if abs(vec_up[2]) < 1e-6:
@@ -83,7 +83,7 @@ class CornerDetector:
     def _compute_corner_candidates(
         extended_segments: List[LineSegment],
         mask: NDArray[np.uint8],
-    ) -> List[CornerFromMask]:
+    ) -> List[Corner2DFromMask]:
         """
         计算每对扩展线段之间的交点，生成角点候选。
         Args:
@@ -95,7 +95,7 @@ class CornerDetector:
         if (n := len(extended_segments)) < 2:
             return []
         # 收集所有交点，用字典去重（四舍五入到整数像素）
-        candidates_dict: Dict[Tuple[int, int], CornerFromMask] = {}
+        candidates_dict: Dict[Tuple[int, int], Corner2DFromMask] = {}
         for i in range(n):
             for j in range(i + 1, n):
                 inter = extended_segments[i].intersection(extended_segments[j])
@@ -104,7 +104,7 @@ class CornerDetector:
                 point = int(round(inter[0])), int(round(inter[1]))
                 # 简单去重：保留第一个遇到的交点
                 if point not in candidates_dict:
-                    candidates_dict[point] = CornerFromMask(
+                    candidates_dict[point] = Corner2DFromMask(
                         np.array(point),
                         extended_segments[i],
                         extended_segments[j],
@@ -115,9 +115,9 @@ class CornerDetector:
 
     def _match(
         self,
-        prior_corners: List[Corner],
-        candidate_corners: List[CornerFromMask],
-    ) -> List[Tuple[Corner, CornerFromMask]]:
+        prior_corners: List[Corner2D],
+        candidate_corners: List[Corner2DFromMask],
+    ) -> List[Tuple[Corner2D, Corner2DFromMask]]:
         """
         根据描述符完全匹配 + 距离约束建立角点匹配对
         Args:
@@ -126,9 +126,9 @@ class CornerDetector:
         Returns:
             List[Tuple[Corner, CornerFromMask]]: (prior, candidate)
         """
-        matches: List[Tuple[Corner, CornerFromMask]] = []  # (prior, candidate)
+        matches: List[Tuple[Corner2D, Corner2DFromMask]] = []  # (prior, candidate)
         for prior_corner in prior_corners:
-            best_match: Optional[CornerFromMask] = None
+            best_match: Optional[Corner2DFromMask] = None
             best_dist: float = float("inf")
             for candidate_corner in candidate_corners:
                 if not candidate_corner.descriptor_matched(prior_corner):
@@ -144,8 +144,8 @@ class CornerDetector:
 
     def _ransac_transform(
         self,
-        prior_corners: List[Corner],
-        matches: List[Tuple[Corner, CornerFromMask]],
+        prior_corners: List[Corner2D],
+        matches: List[Tuple[Corner2D, Corner2DFromMask]],
     ) -> Optional[NDArray]:
         """
         使用RANSAC估计仿射变换（4个自由度）,对四个先验角点坐标进行变换
@@ -201,15 +201,15 @@ class CornerDetector:
         self,
         mask: NDArray[np.uint8],
         body_quat_est: NDArray,
-        prior_corners: List[Corner],
-        derotate_prior_corners: bool = False,
+        prior_corners: List[Corner2D],
+        derotate_prior_corners: bool = True,
         debug_mode: bool = False,
     ) -> Optional[NDArray]:
         """
         QuAdGate
         Args:
             mask (NDArray[np.uint8]): 单个门框的二值化掩码图像 [H, W]（0/255）
-            body_quat_est (NDArray):  状态估计的无人机姿态四元数（I2B）
+            body_quat_est (NDArray):  无人机姿态四元数（I2B） TODO: 来自状态估计还是测量？
             prior_corners (List[Corner]): 上一帧或模板中的四个门框角点
             derotate_prior_corners (bool, optional): 是否对先验角点进行去旋转变换
             debug_mode (bool, optional): 是否开启调试模式，用于可视化
@@ -222,7 +222,7 @@ class CornerDetector:
             prior_corners_arr = np.array([c.point for c in prior_corners]).reshape(-1, 1, 2)
             derotated_prior_corners = cv2.transform(prior_corners_arr, derotate_mat).reshape(-1, 2)
             prior_corners = [
-                Corner(derotated_prior_corners[i], prior_corners[i].descriptor)
+                Corner2D(derotated_prior_corners[i], prior_corners[i].descriptor)
                 for i in range(derotated_prior_corners.shape[0])
             ]
 
@@ -261,7 +261,7 @@ class CornerDetector:
                 self._display_debug_img()
             return None
 
-        # 5. RANSAC 估计4 自由度仿射变换（平移、旋转、均匀缩放），剔除异常匹配、得到精确角点坐标
+        # 5. RANSAC 估计 4 自由度仿射变换（平移、旋转、均匀缩放），剔除异常匹配、得到精确角点坐标
         transformed_prior_corners = self._ransac_transform(prior_corners, matches)  # (4,3)
 
         # 6. 将角点逆旋转回原图像
