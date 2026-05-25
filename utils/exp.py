@@ -18,6 +18,12 @@ class DroneState:
     cam_orientation: Rotation
     """相机姿态（I2C）"""
 
+    cam_front: NDArray = field(init=False)
+    """相机前向单位向量 [x, y, z]"""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cam_front", self.cam_orientation.apply(np.array([1, 0, 0])))
+
 
 @dataclass(frozen=True)
 class GateExp:
@@ -75,18 +81,30 @@ class CamExp:
 
 
 @dataclass(frozen=True)
+class ModuleExp:
+    crop_w: int
+    """自适应裁剪图像宽度（像素）"""
+    crop_h: int
+    """自适应裁剪图像高度（像素）"""
+    crop_gate_oblique_thresh: float
+    """自适应裁剪门框倾斜角阈值（rad），视野中倾斜角大于此值的门框会被排除"""
+
+
+@dataclass(frozen=True)
 class Exp:
     gate: GateExp
     """门框设置"""
     cam: CamExp
     """相机设置"""
+    module: ModuleExp
+    """模块参数"""
 
     @classmethod
     def load(cls, exp_name: str):
         """加载实验配置"""
         with open(f"exps/{exp_name}.yaml", "r") as f:
             config = yaml.safe_load(f)
-        return cls(**config["gate"], **config["cam"])
+        return cls(**config["gate"], **config["cam"], **config["module"])
 
     def create_drone_state(self, position: NDArray, orientation: Rotation):
         """创建无人机状态"""

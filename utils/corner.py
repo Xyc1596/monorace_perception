@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,6 +20,11 @@ class Corner2D:
         self._point = point
         self._descriptor = descriptor
         self._gate_id = gate_id
+
+    @property
+    def gate_id(self):
+        """所属门框编号，-1 表示未知"""
+        return self._gate_id
 
     @property
     def point(self):
@@ -110,3 +115,27 @@ class Corner2DFromMask(Corner2D):
         cv2.circle(img, self._point.tolist(), 1, (0, 255, 0), -1)
         for dp in self._descriptor_points:
             cv2.circle(img, dp.tolist(), 1, (255, 0, 0), -1)
+
+
+class Corner3D(Corner2D):
+    """3D空间内门框角点"""
+
+    def __init__(
+        self,
+        point: NDArray[np.int_],
+        position: NDArray[np.float_],
+        descriptor: CornerDescriptor,
+        gate_id: int = -1,
+    ):
+        super().__init__(point, descriptor, gate_id)
+        self._position = position
+        """3D空间内角点坐标 (3,)"""
+
+    @classmethod
+    def of(cls, corner_2d: Corner2D, position: NDArray[np.float_]):
+        return cls(corner_2d.point, position, corner_2d.descriptor, corner_2d.gate_id)
+    
+    @property
+    def position(self):
+        """3D空间内角点坐标 (3,)"""
+        return self._position

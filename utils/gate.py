@@ -2,15 +2,15 @@
 门框预定义
 """
 
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, cast
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.spatial.transform import Rotation
 
 from utils import Corner2D, CornerDescriptor
 from utils.exp import DroneState, Exp
 from utils.imports import cv2
-from cv2.typing import MatLike
 
 
 class Gate:
@@ -50,25 +50,25 @@ class Gate:
         """门框编号"""
         self.center: NDArray[np.float_] = np.array(gate_pose[:3])
         """门框前表面中心坐标"""
-        self._front: NDArray[np.float_] = np.array([np.cos(yaw), np.sin(yaw), 0.0])
-        """门框方向向量（前表面法向量，指向无人机穿过方向）"""
-        self._left: NDArray[np.float_] = np.array([-np.sin(yaw), np.cos(yaw), 0.0])
-        """门框左向量"""
-        self._up: NDArray[np.float_] = np.array([0.0, 0.0, 1.0])
-        """门框上向量"""
+        self.front: NDArray[np.float_] = np.array([np.cos(yaw), np.sin(yaw), 0.0])
+        """门框方向单位向量（前表面法向量，指向无人机穿过方向）"""
+        self.left: NDArray[np.float_] = np.array([-np.sin(yaw), np.cos(yaw), 0.0])
+        """门框左单位向量"""
+        self.up: NDArray[np.float_] = np.array([0.0, 0.0, 1.0])
+        """门框上单位向量"""
 
         self.corner_3d_points: Dict[CornerDescriptor, NDArray[np.float_]] = dict(
             zip(
                 self.CORNER_ORDER,
                 [
-                    self.center + gate_outer_half_w * self._left + gate_outer_half_h * self._up,
-                    self.center - gate_outer_half_w * self._left + gate_outer_half_h * self._up,
-                    self.center - gate_outer_half_w * self._left - gate_outer_half_h * self._up,
-                    self.center + gate_outer_half_w * self._left - gate_outer_half_h * self._up,
-                    self.center + gate_inner_half_w * self._left + gate_inner_half_h * self._up,
-                    self.center - gate_inner_half_w * self._left + gate_inner_half_h * self._up,
-                    self.center - gate_inner_half_w * self._left - gate_inner_half_h * self._up,
-                    self.center + gate_inner_half_w * self._left - gate_inner_half_h * self._up,
+                    self.center + gate_outer_half_w * self.left + gate_outer_half_h * self.up,
+                    self.center - gate_outer_half_w * self.left + gate_outer_half_h * self.up,
+                    self.center - gate_outer_half_w * self.left - gate_outer_half_h * self.up,
+                    self.center + gate_outer_half_w * self.left - gate_outer_half_h * self.up,
+                    self.center + gate_inner_half_w * self.left + gate_inner_half_h * self.up,
+                    self.center - gate_inner_half_w * self.left + gate_inner_half_h * self.up,
+                    self.center - gate_inner_half_w * self.left - gate_inner_half_h * self.up,
+                    self.center + gate_inner_half_w * self.left - gate_inner_half_h * self.up,
                 ],
             )
         )
@@ -86,6 +86,8 @@ class GateManager:
         self._all_gates: List[Gate] = []
         """所有门框"""
 
+        all_centers_list: List[NDArray] = []
+        all_fronts_list: List[NDArray] = []
         all_3d_corners_list: List[NDArray] = []
         corner_to_gate_id_lookup_list: List[int] = []
 
@@ -99,19 +101,34 @@ class GateManager:
                 self._exp.gate.inner_half_h,
             )
             self._all_gates.append(gate)
+            all_centers_list.append(gate.center)
+            all_fronts_list.append(gate.front)
             all_3d_corners_list.extend(gate.corner_3d_points.values())
             corner_to_gate_id_lookup_list.extend([gate_id] * len(gate.corner_3d_points))
 
+        self._all_centers: NDArray = np.array(all_centers_list)
+        """所有门框前表面中心坐标 (n_gates, 3)"""
         self._all_3d_corners: NDArray = np.array(all_3d_corners_list)
         """所有门框角点3D坐标 (n_gates * 8, 3)"""
+        self._all_fronts: NDArray = np.array(all_fronts_list)
+        """所有门框方向向量 (n_gates, 3)"""
         self._corner_gate_id_lookup: NDArray = np.array(corner_to_gate_id_lookup_list)
         """角点索引值到门框编号的映射 (n_gates * 8,)"""
         self._corner_descriptor_lookup: List[CornerDescriptor] = Gate.CORNER_ORDER * len(self._all_gates)
         """角点索引值到描述子的映射 (n_gates * 8,)"""
-        
+
     def __len__(self) -> int:
         return len(self._all_gates)
-    
+
+    def calc_all_distances(self, drone_state: DroneState) -> NDArray[np.float_]:
+        """计算所有门框到无人机当前位置的距离
+        Args:
+            drone_state (DroneState): 无人机状态
+        Returns:
+            NDArray[np.float_]: 所有门框到无人机当前位置的距离
+        """
+        return np.linalg.norm(self._all_centers - drone_state.position, axis=1)
+
     def render_all_corners(self, drone_state: DroneState) -> List[Corner2D]:
         """将可见门框角点映射到相机画面
         Args:
