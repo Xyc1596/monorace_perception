@@ -11,10 +11,9 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
 
 from utils.corner import Corner3D
-from utils.corner_descriptor import CornerDescriptor
-from utils.exp import DroneState
+from utils.exp import DroneState, Exp
 from utils.imports import cv2
-from utils import Corner2D, Corner2DFromMask, LineSegment
+from utils import Corner2DFromMask, LineSegment
 
 T = TypeVar("T")
 S = TypeVar("S")
@@ -43,10 +42,10 @@ class Match(Generic[T, S]):
 
 
 class CornerDetector:
-    def __init__(self, intrinsic_mat: NDArray, extrinsic_mat: NDArray):
-        self._INTRINSIC_MAT: NDArray = intrinsic_mat
-        self._ROT_B2C = Rotation.from_matrix(extrinsic_mat[:3, :3])
-        self._EXT_FACTOR: float = 5 / 3
+    def __init__(self, exp: Exp):
+        self._INTRINSIC_MAT: NDArray = exp.cam.intrinsics
+        self._ROT_B2C = exp.cam.rotation_B2C
+        self._EXT_FACTOR: float = 5 / 3 #TODO: use exp
         """线段长度缩放因子"""
         self._MATCH_DIST_THRESH: int = 100
         """如果先验角点与候选角点像素距离大于此值，则拒绝匹配"""
