@@ -9,8 +9,9 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
 
 from utils import Corner2D, CornerDescriptor
-from utils.exp import DroneState, Exp
+from utils.exp import Exp
 from utils.imports import cv2
+from utils.states import DroneState
 
 
 class Gate:

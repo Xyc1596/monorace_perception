@@ -11,9 +11,10 @@ from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
 
 from utils.corner import Corner3D
-from utils.exp import DroneState, Exp
+from utils.exp import Exp
 from utils.imports import cv2
 from utils import Corner2DFromMask, LineSegment
+from utils.states import DroneState
 
 T = TypeVar("T")
 S = TypeVar("S")

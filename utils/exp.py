@@ -1,43 +1,41 @@
-from abc import ABC, abstractmethod
-from dataclasses import InitVar, dataclass, field, asdict, fields, is_dataclass
-import os
-from typing import Any, ClassVar, Dict, Generic, List, Tuple, TypeVar, cast
+from abc import ABC
+from dataclasses import dataclass, field, fields
+from typing import Any, ClassVar, Dict, Generic, List, TypeVar, cast
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation
 import yaml
 
-
-@dataclass(frozen=True)
-class DroneState:
-    position: NDArray = field(default_factory=lambda: np.array([0, 0, 0]))
-    """无人机位置 [x, y, z]"""
-    orientation: Rotation = field(default_factory=lambda: Rotation.from_euler("XYZ", [0, 0, 0]))
-    """无人机姿态（I2B）"""
-    cam_position: NDArray = field(default_factory=lambda: np.array([0, 0, 0]))
-    """相机光心位置 [x, y, z]"""
-    cam_orientation: Rotation = field(default_factory=lambda: Rotation.from_euler("XYZ", [0, 0, 0]))
-    """相机姿态（I2C）"""
-
-    cam_front: NDArray = field(default_factory=lambda: np.array([1, 0, 0]), init=False, repr=False)
-    """相机前向单位向量 [x, y, z]"""
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "cam_front", self.cam_orientation.apply(np.array([1, 0, 0])))
-
+from utils.states import DroneState
+from utils.yaml_utils import NestedList
 
 T = TypeVar("T", bound="IExp")
+S = TypeVar("S")
 
 
+@dataclass(frozen=True)
 class IExp(ABC, Generic[T]):
     @classmethod
     def default(cls) -> T:
         return cast(T, cls(**{}))
 
-    @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
-        pass
+        _ignored = getattr(self.__class__, "_IGNORED", [])
+        result = {}
+        for f in fields(self):
+            if f.name in _ignored:
+                continue
+            value = getattr(self, f.name)
+            if isinstance(value, np.ndarray):
+                result[f.name] = NestedList.of(value.tolist())
+            elif isinstance(value, IExp):
+                result[f.name] = value.to_dict()
+            elif isinstance(value, list):
+                result[f.name] = NestedList.of(value)
+            else:
+                result[f.name] = value
+        return result
 
 
 @dataclass(frozen=True)
@@ -53,28 +51,22 @@ class GateExp(IExp["GateExp"]):
     poses: List[List[float]] = field(default_factory=list)
     """所有门框坐标（m）和偏航（rad） [x, y, z, yaw]"""
 
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass(frozen=True)
 class CamExp(IExp["CamExp"]):
     _IGNORED: ClassVar[List[str]] = ["translation_B2C", "rotation_B2C"]
 
-    intrinsics_list: InitVar[List[List[float]]] = []
+    intrinsics: NDArray[np.float_] = field(
+        default_factory=lambda: np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float_)
+    )
     """内参矩阵 (3,3)"""
-    extrinsics_list: InitVar[List[List[float]]] = []
-    """外参矩阵 (3,4)"""
-    dist_coeffs_list: InitVar[List[float]] = []
-    """畸变参数 (5,)"""
-
-    intrinsics: NDArray = field(default_factory=lambda: np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]]), init=False)
-    """内参矩阵 (3,3)"""
-    extrinsics: NDArray = field(
-        default_factory=lambda: np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]), init=False
+    extrinsics: NDArray[np.float_] = field(
+        default_factory=lambda: np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=np.float_)
     )
     """外参矩阵（相对于机体系）(3,4)"""
-    dist_coeffs: NDArray = field(default_factory=lambda: np.array([0.0, 0.0, 0.0, 0.0, 0.0]), init=False, repr=False)
+    dist_coeffs: NDArray[np.float_] = field(
+        default_factory=lambda: np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float_)
+    )
     """畸变参数 (5,)"""
     img_w: int = field(default_factory=lambda: 640)
     """图像宽度（像素）"""
@@ -86,42 +78,26 @@ class CamExp(IExp["CamExp"]):
     rotation_B2C: Rotation = field(init=False)
     """相机相对于机体体系的旋转"""
 
-    def __post_init__(
-        self,
-        intrinsics_list: List[List[float]] = [],
-        extrinsics_list: List[List[float]] = [],
-        dist_coeffs_list: List[float] = [],
-    ):
-        if intrinsics_list:
-            object.__setattr__(self, "intrinsics", np.array(intrinsics_list))
-            if self.intrinsics.shape != (3, 3):
-                raise ValueError("intrinsics must be (3,3)")
-        if extrinsics_list:
-            object.__setattr__(self, "extrinsics", np.array(extrinsics_list))
-            if self.extrinsics.shape != (3, 4):
-                raise ValueError("extrinsics must be (3,4)")
-        if dist_coeffs_list:
-            object.__setattr__(self, "dist_coeffs", np.array(dist_coeffs_list))
-            if self.dist_coeffs.shape != (5,):
-                raise ValueError("dist_coeffs must be (5,)")
+    def __post_init__(self):
         object.__setattr__(self, "translation_B2C", self.extrinsics[:, 3])
         object.__setattr__(self, "rotation_B2C", Rotation.from_matrix(self.extrinsics[:, :3]))
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in self._IGNORED}
+
+class ModuleCornerDetectorExp(IExp["ModuleCornerDetectorExp"]):
+    line_extend_factor: float = 5 / 3
+    """线段长度缩放因子"""
+    match_distance_thresh: int = 100
+    """如果先验角点与候选角点像素距离大于此值，则拒绝匹配"""
+    ransac_thresh: float = 5.0
+    """RANSAC内点阈值（像素）"""
+    ransac_max_translation: int = 150
+    """RANSAC 任何方向上的平移超过此值则拒绝解"""
 
 
 @dataclass(frozen=True)
 class ModuleExp(IExp["ModuleExp"]):
-    crop_w: int = 384
-    """自适应裁剪图像宽度（像素）"""
-    crop_h: int = 384
-    """自适应裁剪图像高度（像素）"""
-    crop_gate_oblique_thresh: float = 1.0
-    """自适应裁剪门框倾斜角阈值（rad），视野中倾斜角大于此值的门框会被排除"""
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+    ransac_thresh: float = 5.0
+    """RANSAC内点阈值（像素）"""
 
 
 @dataclass(frozen=True)
@@ -135,15 +111,25 @@ class Exp(IExp["Exp"]):
 
     @classmethod
     def load(cls, exp_name: str):
-        """加载实验配置"""
+        """加载实验配置
+        Args:
+            exp_name (str): 实验配置文件名（不包含目录和扩展名）
+        """
         with open(f"exps/{exp_name}.yaml", "r") as f:
             config = yaml.safe_load(f)
-        return cls(**config["gate"], **config["cam"], **config["module"])
+        return cls(
+            gate=GateExp(**config["gate"]),
+            cam=CamExp(**config["cam"]),
+            module=ModuleExp(**config["module"]),
+        )
 
     def save(self, exp_name: str):
-        """保存实验配置"""
+        """保存实验配置
+        Args:
+            exp_name (str): 实验配置文件名（不包含目录和扩展名）
+        """
         with open(f"exps/{exp_name}.yaml", "w", encoding="utf-8") as f:
-            yaml.dump(self.to_dict(), f)
+            yaml.dump(self.to_dict(), f, sort_keys=False)
 
     def create_drone_state(self, position: NDArray, orientation: Rotation):
         """创建无人机状态"""
@@ -154,14 +140,15 @@ class Exp(IExp["Exp"]):
             cam_orientation=Rotation.from_matrix(self.cam.extrinsics[1]),
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "gate": self.gate.to_dict(),
-            "cam": self.cam.to_dict(),
-            "module": self.module.to_dict(),
-        }
-
 
 if __name__ == "__main__":
-    exp = Exp.default()
-    print(exp.to_dict())
+    import sys
+
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "save":
+            exp = Exp.default()
+            exp.save("default")
+        elif cmd == "load":
+            exp = Exp.load("default")
+            print(exp)
