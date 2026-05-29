@@ -27,6 +27,7 @@ flowchart TD
 
     cam[/"相机"/]
     gates[/"门框定义"/]
+    ctrl[/"控制"/]
 
     cam -->|"输入图像"| AC
     gates -->|"全体门框中心 & 角点3D坐标"| AC
@@ -40,9 +41,10 @@ flowchart TD
 
     CD -->|"匹配的角点\n3D坐标 & 2D坐标"| PnP
     PnP -->|"无人机位置 & 姿态测量值"| EKF
+    EKF -->|"无人机位置 & 姿态"| ctrl
 ```
 
 > [!NOTE]
-> * 部分参数（包括相机内外参）未列出，详见[`github.com/Xyc1596/monorace_perception/utils/exp.py`](utils/exp.py)
-> * 无人机和相机位姿等状态量预测和测量值均封装为`utils.exp.DroneState`类
+> * 部分参数（包括相机内外参）未列出，详见[`github.com/Xyc1596/monorace_perception/utils/exp.py`](utils/exp.py)（WIP）
+> * 无人机和相机位姿等状态量预测和测量值均封装为`utils.exp.DroneState`类（WIP）
 
